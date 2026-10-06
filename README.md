@@ -31,7 +31,8 @@ the base repo, so clone both side by side:
     docker run -d --init --name xulj-swing -p 8093:8093 -v "$PWD/out":/app:ro xulj-jdk \
       xvfb-run -a java -Djava.security.manager=allow -jar /app/xulj-swing.jar \
       --jar /app/LegacyInventory.jar --frame legacy.InventoryFrame --port 8093
-    node test/swing-e2e.js           # end-to-end checks against the running bridge
+    node test/swing-e2e.js           # 18 end-to-end checks against the running bridge
+    node test/mcp-e2e.js             # an agent operating the demo through the XUL-J MCP server
 
 `--init` matters: as PID 1, `xvfb-run` never sees Xvfb's ready signal and hangs silently.
 

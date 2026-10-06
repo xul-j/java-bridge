@@ -55,8 +55,9 @@
         (<code>com.sun.net.httpserver</code>) and runs on Java 8 or later.
       </p>
       <div class="callout">
-        <strong>Status: prototype.</strong> Tested end to end with OpenJDK 17 under Xvfb (16 checks,
-        including dialogs, file transfers, menus and session isolation). There is no authentication.
+        <strong>Status: prototype.</strong> Tested end to end with OpenJDK 17 under Xvfb (18 checks
+        covering dialogs, file transfers, menus, selection, context menus, theming and session isolation,
+        plus an agent driving the demo through MCP). There is no authentication.
       </div>
 
       <h2 id="quick-start">Quick start</h2>
@@ -261,8 +262,10 @@ src/org/xulj/bridge/Host.java        sessions, EDT tick, HTTP/SSE, intents, uplo
 src/org/xulj/bridge/Launcher.java    command line
 src/org/xulj/bridge/Json.java        dependency-free JSON
 demo/src/legacy/InventoryFrame.java  a 2000s-style Swing demo with menus, table, timers and dialogs
-test/swing-e2e.js                    end-to-end test against a running bridge (needs ../xul-j)</code></pre>
-<pre><code>node test/swing-e2e.js http://127.0.0.1:8093</code></pre>
+test/swing-e2e.js                    end-to-end test against a running bridge (needs ../xul-j)
+test/mcp-e2e.js                      an agent operating the demo through the XUL-J MCP server</code></pre>
+<pre><code>node test/swing-e2e.js http://127.0.0.1:8093
+node test/mcp-e2e.js http://127.0.0.1:8093</code></pre>
       <p>Source and issues: <a href="https://github.com/xul-j/java-bridge">github.com/xul-j/java-bridge</a>. MIT licensed.</p>
     </main>
   </div>
