@@ -448,7 +448,9 @@ public final class Renderer {
         if (rp != null && rp.getDefaultButton() == b) n.attrs.put("class", "primary");
         String key = null;
         if (b instanceof JMenuItem && !(b instanceof JMenu)) key = keyName(((JMenuItem) b).getAccelerator());
-        if (key == null && b.getMnemonic() != 0 && Character.isLetterOrDigit(b.getMnemonic())) key = "alt+" + Character.toLowerCase((char) b.getMnemonic());
+        // A menu item's mnemonic only works inside its open menu, so it is not a global shortcut.
+        if (key == null && !(b instanceof JMenuItem) && b.getMnemonic() != 0 && Character.isLetterOrDigit(b.getMnemonic()))
+            key = "alt+" + Character.toLowerCase((char) b.getMnemonic());
         String cmd = "cmd_" + n.id;
         n.attrs.put("command", cmd);
         commands.put(cmd, command(b.isEnabled(), key));
@@ -481,26 +483,38 @@ public final class Renderer {
         return sb.append(name).toString();
     }
 
-    /** Menus have no XUL-J widget yet: leaf items flatten into buttons labelled "File › Exit". */
+    /** Menus open and close in the browser; only choosing a leaf item reaches the bridge. */
     private VNode menuBar(JMenuBar bar, String parent, int order) {
-        VNode n = add(bar, "toolbar", parent, order);
-        int[] i = {0};
+        VNode n = add(bar, "menubar", parent, order);
+        int i = 0;
         for (int m = 0; m < bar.getMenuCount(); m++) {
             JMenu menu = bar.getMenu(m);
-            if (menu != null) menuItems(menu, n.id, i, "");
+            if (menu != null) menu(menu, n.id, i++, true);
         }
         return n;
     }
 
-    private void menuItems(JMenu menu, String parent, int[] order, String path) {
-        String here = path + text(menu.getText()) + " › ";
+    private VNode menu(JMenu menu, String parent, int order, boolean topLevel) {
+        VNode n = add(menu, "menu", parent, order);
+        n.attrs.put("label", text(menu.getText()));
+        if (topLevel && menu.getMnemonic() != 0 && Character.isLetterOrDigit(menu.getMnemonic()))
+            n.attrs.put("accesskey", "alt+" + Character.toLowerCase((char) menu.getMnemonic()));
+        if (!menu.isEnabled()) n.attrs.put("disabled", true);
+        if (!menu.isVisible()) n.attrs.put("hidden", true);
+        int i = 0;
         for (Component k : menu.getMenuComponents()) {
-            if (k instanceof JMenu) menuItems((JMenu) k, parent, order, here);
+            VNode child;
+            if (k instanceof JMenu) child = menu((JMenu) k, n.id, i, false);
             else if (k instanceof JMenuItem) {
-                VNode b = button((JMenuItem) k, parent, order[0]++, "toolbarbutton", here);
-                if (!k.isVisible()) b.attrs.put("hidden", true);
-            }
+                child = button((JMenuItem) k, n.id, i, "menuitem", "");
+                if (k instanceof javax.swing.JCheckBoxMenuItem || k instanceof javax.swing.JRadioButtonMenuItem)
+                    child.attrs.put("checked", ((JMenuItem) k).isSelected());
+            } else if (k instanceof JSeparator) child = add(k, "menuseparator", n.id, i);
+            else continue;
+            if (!k.isVisible()) child.attrs.put("hidden", true);
+            i++;
         }
+        return n;
     }
 
     // ---- data widgets --------------------------------------------------------------------

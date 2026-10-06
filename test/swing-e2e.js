@@ -73,7 +73,7 @@ function show(c) {
 
   await step('layout managers map to boxes; ids come from the app’s field names', async () => {
     const win = a.model.ids.get('InventoryFrame');
-    assert.deepStrictEqual(win.children.map((c) => c.tag), ['toolbar', 'vbox'], 'menu bar, content pane');
+    assert.deepStrictEqual(win.children.map((c) => c.tag), ['menubar', 'vbox'], 'menu bar, content pane');
     const content = win.children[1].children.map((c) => c.tag);
     assert.deepStrictEqual(content, ['toolbar', 'tabbox', 'vbox'], 'BorderLayout north / center / south');
     assert.strictEqual(a.attr('nameField', 'flex'), 1, 'GridBag weightx + fill → flex');
@@ -84,6 +84,23 @@ function show(c) {
     assert.strictEqual(a.attr('notesArea', 'multiline'), true);
     assert.strictEqual(a.attr('apiKeyField', 'password'), true);
     assert.strictEqual(a.model.ids.get('metricRadio').parent.tag, 'groupbox', 'TitledBorder → groupbox');
+  });
+
+  await step('JMenuBar becomes a real menubar: submenus, separators, check and radio items', async () => {
+    const bar = a.model.ids.get('InventoryFrame').children[0];
+    assert.deepStrictEqual(bar.children.map((c) => `${c.id}:${c.tag}:${c.attrs.label}:${c.attrs.accesskey}`),
+      ['file:menu:File:alt+f', 'view:menu:View:alt+v', 'help:menu:Help:alt+h']);
+    assert.deepStrictEqual(a.model.ids.get('file').children.map((c) => c.tag), ['menuitem', 'menuitem', 'menuseparator', 'menuitem']);
+    assert.strictEqual(a.attr('exit', 'label'), 'Exit');
+    assert.strictEqual(a.model.commands.get('cmd_exit').key, undefined, 'item mnemonics are not global shortcuts');
+    assert.strictEqual(a.attr('compactRows', 'checked'), false);
+    const sort = a.model.ids.get('sortBy');
+    assert.strictEqual(sort.tag, 'menu', 'nested submenu');
+    assert.deepStrictEqual(sort.children.map((c) => `${c.attrs.label}:${c.attrs.checked}`), ['SKU:true', 'Name:false', 'Qty:false']);
+    await a.send({ op: 'do', command: 'cmd_compactRows' });
+    await until(() => a.attr('compactRows', 'checked') === true && a.attr('statusLabel', 'value') === 'Compact rows', 'check item toggled');
+    await a.send({ op: 'do', command: 'cmd_name' });
+    await until(() => a.attr('name', 'checked') === true && a.attr('sku', 'checked') === false, 'radio item moved');
   });
 
   await step("the app's javax.swing.Timer drives live updates", async () => {

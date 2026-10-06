@@ -73,7 +73,8 @@ An exception thrown by an app listener becomes an error notification. Uploads ar
 | Swing | XUL-J |
 |---|---|
 | JFrame, JDialog | window (modal dialogs are `modal`) |
-| JMenuBar | toolbar; leaf items are flattened to "File › Exit", accelerators become keys |
+| JMenuBar, JMenu | menubar and menus with submenus and separators; menu mnemonics open them (Alt+F), accelerators are shown and bound |
+| JCheckBoxMenuItem, JRadioButtonMenuItem | menuitem with `checked` |
 | JToolBar | toolbar (glue becomes a spacer) |
 | JButton, JMenuItem | button / toolbarbutton + command (mnemonic → `alt+` key) |
 | JCheckBox, JRadioButton, JToggleButton | checkbox |
@@ -91,7 +92,7 @@ An exception thrown by an app listener becomes an error notification. Uploads ar
 ## Limitations
 
 - AWT `FileDialog` is native and not intercepted (Swing apps rarely use it).
-- Custom-painted components, images and charts do not render. Menus are flattened. Table and
-  list selection, and cell editing, are not mapped yet.
+- Custom-painted components, images and charts do not render. Popup menus (`JPopupMenu`),
+  table and list selection, and cell editing are not mapped yet.
 - In shared mode every viewer sees, and can change, the same app, including password fields.
 - Every per-session window is a live instance on the host, with no authentication and no session limit.

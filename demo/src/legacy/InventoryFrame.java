@@ -119,6 +119,7 @@ public class InventoryFrame extends JFrame {
     private JMenuBar buildMenus() {
         JMenuBar bar = new JMenuBar();
         JMenu file = new JMenu("File");
+        file.setMnemonic(KeyEvent.VK_F);
         JMenuItem importItem = new JMenuItem("Import CSV…");
         importItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_DOWN_MASK));
         importItem.addActionListener(e -> importCsv());
@@ -131,12 +132,28 @@ public class InventoryFrame extends JFrame {
         file.add(exportItem);
         file.addSeparator();
         file.add(exitItem);
+        JMenu view = new JMenu("View");
+        view.setMnemonic(KeyEvent.VK_V);
+        javax.swing.JCheckBoxMenuItem compact = new javax.swing.JCheckBoxMenuItem("Compact rows");
+        compact.addActionListener(e -> { itemsTable.setRowHeight(compact.isSelected() ? 14 : 18); status(compact.isSelected() ? "Compact rows" : "Normal rows"); });
+        JMenu sortMenu = new JMenu("Sort by");
+        ButtonGroup sortGroup = new ButtonGroup();
+        for (String col : new String[] {"SKU", "Name", "Qty"}) {
+            javax.swing.JRadioButtonMenuItem item = new javax.swing.JRadioButtonMenuItem(col, col.equals("SKU"));
+            sortGroup.add(item);
+            item.addActionListener(e -> status("Sorted by " + col));
+            sortMenu.add(item);
+        }
+        view.add(compact);
+        view.add(sortMenu);
         JMenu help = new JMenu("Help");
+        help.setMnemonic(KeyEvent.VK_H);
         JMenuItem aboutItem = new JMenuItem("About");
         aboutItem.addActionListener(e -> JOptionPane.showMessageDialog(this,
             "Legacy Inventory 2.3\nA Swing app served by XUL-J.", "About", JOptionPane.INFORMATION_MESSAGE));
         help.add(aboutItem);
         bar.add(file);
+        bar.add(view);
         bar.add(help);
         return bar;
     }
