@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>java-bridge · XUL-J</title>
+  <meta name="description" content="java-bridge serves unmodified Java Swing applications to browsers through the XUL-J protocol.">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/docs.css">
+</head>
+<body>
+  <header class="top">
+    <nav class="wrap">
+      <a class="brand" href="/">XUL-J</a>
+      <span class="links">
+        <a href="/generate.html">Generator</a>
+        <a href="/net-bridge/">net-bridge</a>
+        <a href="/java-bridge/" aria-current="page">java-bridge</a>
+        <a href="https://github.com/xul-j/java-bridge">GitHub</a>
+      </span>
+    </nav>
+  </header>
+
+  <div class="wrap doc">
+    <nav class="toc" aria-label="On this page">
+      <strong>java-bridge</strong>
+      <a href="#overview">Overview</a>
+      <a href="#quick-start">Quick start</a>
+      <a href="#command-line">Command line</a>
+      <a href="#modes">Session modes</a>
+      <a href="#embedding">Embedding</a>
+      <a href="#how">How it works</a>
+      <a href="#layout">Layout</a>
+      <a href="#mapping">Component mapping</a>
+      <a href="#menus">Menus</a>
+      <a href="#dialogs">Dialogs</a>
+      <a href="#exit">System.exit</a>
+      <a href="#http">HTTP endpoints</a>
+      <a href="#security">Security</a>
+      <a href="#limitations">Limitations</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+      <a href="#development">Development</a>
+    </nav>
+
+    <main class="content">
+      <p class="eyebrow">XUL-J bridge · Java Swing</p>
+      <h1 id="overview">java-bridge</h1>
+      <p class="lede">
+        Serve an existing, <strong>unmodified</strong> Swing application to browsers. The bridge streams
+        live Swing windows as <a href="/#protocol">XUL-J operations</a> and replays clicks and edits from
+        the browser on the real components, on the Event Dispatch Thread. It needs only the JDK
+        (<code>com.sun.net.httpserver</code>) and runs on Java 8 or later.
+      </p>
+      <div class="callout">
+        <strong>Status: prototype.</strong> Tested end to end with OpenJDK 17 under Xvfb (16 checks,
+        including dialogs, file transfers, menus and session isolation). There is no authentication.
+      </div>
+
+      <h2 id="quick-start">Quick start</h2>
+      <h3>On a desktop</h3>
+<pre><code>java -Djava.security.manager=allow -jar xulj-swing.jar \
+     --jar Inventory.jar --frame com.acme.MainFrame --host localhost</code></pre>
+      <p>Open <code>http://localhost:8093/</code>. Every browser tab gets its own <code>MainFrame</code>.</p>
+
+      <h3>On a server, with Docker (JDK 17 + Xvfb)</h3>
+      <p>Swing needs a display, so on a server it runs under a virtual one. The build embeds the browser client from the base repository, so clone both side by side:</p>
+<pre><code>git clone https://github.com/xul-j/xul-j
+git clone https://github.com/xul-j/java-bridge && cd java-bridge
+docker build -t xulj-jdk docker
+./build.sh        <span class="c"># → out/xulj-swing.jar, out/LegacyInventory.jar (Java 8 bytecode)</span>
+docker run -d --init --name xulj-swing -p 8093:8093 -v "$PWD/out":/app:ro xulj-jdk \
+  xvfb-run -a java -Djava.security.manager=allow -jar /app/xulj-swing.jar \
+  --jar /app/LegacyInventory.jar --frame legacy.InventoryFrame --port 8093</code></pre>
+      <p>Without Docker: <code>javac --release 8 -d classes $(find src -name '*.java')</code>, copy <code>index.html</code>, <code>xulj.js</code> and <code>xul.css</code> from <code>xul-j/public</code> into <code>classes/public/</code>, and <code>jar cfe xulj-swing.jar org.xulj.bridge.Launcher -C classes .</code>.</p>
+
+      <h2 id="command-line">Command line</h2>
+<pre><code>java -Djava.security.manager=allow -jar xulj-swing.jar --jar App.jar
+     (--frame window.Class | [--main main.Class]) [--port 8093] [--host 0.0.0.0] [-- app args]</code></pre>
+      <table class="map">
+        <thead><tr><th>Option</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>--jar</code></td><td>The application jar, loaded in its own class loader (optional if the app is already on the classpath).</td></tr>
+          <tr><td><code>--frame</code></td><td>Per-session mode: a <code>java.awt.Window</code> subclass with a no-argument constructor, created once per browser session.</td></tr>
+          <tr><td><code>--main</code></td><td>Shared mode: the class whose <code>main()</code> is run once. It defaults to the jar's <code>Main-Class</code>.</td></tr>
+          <tr><td><code>--port</code>, <code>--host</code></td><td>Where to listen (default <code>0.0.0.0:8093</code>). Use <code>--host localhost</code> unless the machine is behind your own access control.</td></tr>
+          <tr><td><code>-- …</code></td><td>Arguments passed to the app's <code>main()</code> in shared mode.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="modes">Session modes</h2>
+      <table class="map">
+        <thead><tr><th>Mode</th><th>Behaviour</th><th>Good for</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Per session</strong> (<code>--frame</code>)</td><td>Each browser session gets a fresh window instance. Sessions are isolated, and idle ones close after 10 minutes.</td><td>Line-of-business apps used by several people at once</td></tr>
+          <tr><td><strong>Shared</strong> (<code>--main</code>)</td><td>The app starts normally, once. Every viewer sees and drives the same windows, like a shared screen. When the app exits, every viewer is told.</td><td>Apps that need their <code>main()</code>, dashboards, kiosks, single-user tools</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="embedding">Embedding</h2>
+<pre><code>import org.xulj.bridge.Host;
+
+public static void main(String[] args) throws Exception {
+    Config.load();                                     <span class="c">// your startup code still runs</span>
+    Host.Options opt = new Host.Options();
+    opt.port = 8093;
+    opt.host = "127.0.0.1";
+    new Host(() -> new MainFrame(), opt).start();      <span class="c">// per session</span>
+    // Host.shared(opt).start(); then create your windows as usual   // shared
+}</code></pre>
+      <p><code>Host.Options</code> also has <code>tickMs</code> (default 50), <code>sessionTtlMs</code> (default 10 minutes) and <code>log</code>.</p>
+
+      <h2 id="how">How it works</h2>
+      <ol class="steps">
+        <li><strong>Windows.</strong> Windows are realized on a (virtual) display and placed off-screen, so Swing lays them out for real. Windows the app opens later go to the right session through their owner chain (a dialog owned by a session's frame belongs to that session). <code>EXIT_ON_CLOSE</code> frames are switched to <code>DISPOSE_ON_CLOSE</code>.</li>
+        <li><strong>Rendering and diffing.</strong> Every <code>tickMs</code>, on the EDT, the bridge builds a virtual XUL-J tree and sends only what changed. This is the same reconciliation algorithm as <a href="/net-bridge/">net-bridge</a>, so both bridges produce identical kinds of streams.</li>
+        <li><strong>Intents.</strong> An intent is validated with <code>invokeAndWait</code> (unknown target 404, disabled 409), then run with <code>invokeLater</code>, so a modal dialog never blocks the HTTP server. Buttons are pressed with <code>doClick</code>, and check boxes and radio buttons are clicked rather than set, so <code>ActionListener</code>s run as they would for a user. Text goes through <code>setText</code>, combos through <code>setSelectedIndex</code>, and spinners through <code>setValue</code> with the model's own number type.</li>
+        <li><strong>Ids.</strong> Ids come from the app's own field names (<code>private JButton addButton</code> → <code>addButton</code>), then component names, then button labels (<code>Import CSV…</code> → <code>importCsv</code>). Commands are <code>cmd_&lt;id&gt;</code>.</li>
+      </ol>
+
+      <h2 id="layout">Layout</h2>
+      <table class="map">
+        <thead><tr><th>Swing</th><th>XUL-J</th></tr></thead>
+        <tbody>
+          <tr><td><code>BorderLayout</code></td><td>vbox: north, then an hbox of west / center (flex) / east, then south</td></tr>
+          <tr><td><code>FlowLayout</code></td><td>hbox, with spacers for RIGHT and CENTER alignment</td></tr>
+          <tr><td><code>BoxLayout</code></td><td>hbox or vbox; glue becomes a spacer, and scroll panes, tables, lists and text areas grow</td></tr>
+          <tr><td><code>GridLayout</code> / <code>CardLayout</code></td><td>one hbox per row with equal cells / stacked cards (inactive ones hidden)</td></tr>
+          <tr><td><code>GridBagLayout</code></td><td>Rows from the real bounds. <code>weightx</code> + fill becomes flex, <code>weighty</code> + fill makes the row grow, and an EAST anchor right-aligns.</td></tr>
+          <tr><td><code>GroupLayout</code>, null layout, others</td><td>Rows from the real bounds. Cells are sized up to the next one, which keeps label columns aligned. Controls that span the container stretch, and controls hugging the right edge are right-aligned.</td></tr>
+          <tr><td><code>JSplitPane</code>, <code>JTabbedPane</code>, <code>JScrollPane</code></td><td>Two panes sized by the divider; tabbox; its view</td></tr>
+          <tr><td>Panel with a <code>TitledBorder</code></td><td>groupbox</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="mapping">Component mapping</h2>
+      <table class="map">
+        <thead><tr><th>Swing</th><th>XUL-J</th></tr></thead>
+        <tbody>
+          <tr><td>JFrame, JDialog</td><td>window (<code>modal</code> for modal dialogs; Escape closes them)</td></tr>
+          <tr><td>JButton</td><td>button + command (the root pane's default button is <code>primary</code>; the mnemonic becomes Alt+key)</td></tr>
+          <tr><td>JTextField, JFormattedTextField, JPasswordField, JSpinner</td><td>textbox (<code>password</code>)</td></tr>
+          <tr><td>JTextArea, JEditorPane</td><td>textbox <code>multiline</code></td></tr>
+          <tr><td>JCheckBox, JRadioButton, JToggleButton</td><td>checkbox</td></tr>
+          <tr><td>JComboBox</td><td>menulist</td></tr>
+          <tr><td>JTable, JList, JTree</td><td>tree with a row source (JTree rows indented by depth)</td></tr>
+          <tr><td>JProgressBar, JSlider</td><td>progressmeter</td></tr>
+          <tr><td>JToolBar</td><td>toolbar</td></tr>
+          <tr><td>JLabel</td><td>label (HTML labels reduced to text)</td></tr>
+          <tr><td>anything else</td><td>a muted <code>[ClassName]</code> placeholder</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="menus">Menus</h2>
+      <p>
+        <code>JMenuBar</code> becomes a <code>menubar</code> and every <code>JMenu</code> a
+        <code>menu</code>, including submenus. Separators become <code>menuseparator</code>, and items
+        become <code>menuitem</code>. <code>JCheckBoxMenuItem</code> and
+        <code>JRadioButtonMenuItem</code> show their check state. A menu's mnemonic opens it (Alt+F),
+        and item accelerators are shown and bound. An item's own mnemonic is not a global shortcut,
+        just as on the desktop. Menus open and close in the browser; only choosing an item reaches the
+        app, as <code>doClick</code>.
+      </p>
+
+      <h2 id="dialogs">Dialogs</h2>
+      <p>No patching is needed: <code>JOptionPane</code> and <code>JFileChooser</code> are ordinary Swing components, and the bridge drives them through their public APIs.</p>
+      <table class="map">
+        <thead><tr><th>The app calls</th><th>The browser sees</th></tr></thead>
+        <tbody>
+          <tr><td><code>JOptionPane.show*Dialog</code></td><td>A modal window: the message, an icon from the message type, an input field for <code>showInputDialog</code>, the pane's own buttons, and its default button</td></tr>
+          <tr><td><code>JFileChooser.showOpenDialog</code></td><td>A file picker (<code>accept</code> from a <code>FileNameExtensionFilter</code>, multi-selection honoured). The browser uploads, and the selection is set to the uploaded copy and approved.</td></tr>
+          <tr><td><code>JFileChooser.showSaveDialog</code></td><td>A file-name prompt (the filter's extension is added if missing). The app writes to a temporary path, and the browser downloads the file once it has stopped changing.</td></tr>
+          <tr><td>Any modal <code>JDialog</code></td><td>A modal window. Escape sends <code>WINDOW_CLOSING</code>, as a window manager would.</td></tr>
+        </tbody>
+      </table>
+      <p>An exception thrown by an app listener appears as an error notification in the browser.</p>
+
+      <h2 id="exit">System.exit</h2>
+      <p>
+        With <code>-Djava.security.manager=allow</code>, the bridge installs a security manager that
+        allows everything except a real <code>System.exit</code>. An app's File › Exit then ends that
+        browser session (or, in shared mode, the app) instead of stopping the bridge. Permission probes
+        such as <code>setDefaultCloseOperation(EXIT_ON_CLOSE)</code> still succeed.
+      </p>
+      <div class="callout">
+        <strong>JDK 24 and later</strong> removed the Security Manager permanently (JEP 486). There the
+        bridge logs a warning and cannot trap <code>System.exit</code>, so an app that calls it would
+        stop the bridge. For such apps, run the bridge on JDK 8–23.
+      </div>
+
+      <h2 id="http">HTTP endpoints</h2>
+      <table class="map">
+        <thead><tr><th>Request</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /</code></td><td>The browser client (embedded in the jar)</td></tr>
+          <tr><td><code>GET /stream?session=&lt;id&gt;</code></td><td>Server-sent events. Creates the session on first use (per-session mode), and resumes from <code>Last-Event-ID</code> or <code>?from=</code>.</td></tr>
+          <tr><td><code>POST /intent?session=&lt;id&gt;</code></td><td><code>{"op":"do","command":…}</code> or <code>{"op":"input","id":…,"value":…}</code>. Returns 202, or 400, 404 or 409.</td></tr>
+          <tr><td><code>POST /upload?session=&lt;id&gt;&amp;id=&lt;picker&gt;</code></td><td>A file for an open dialog, with the name in <code>X-Filename</code>. Returns 202, 404 or 413 (over 100 MB).</td></tr>
+          <tr><td><code>GET /download/&lt;token&gt;</code></td><td>A file the app saved, sent as an attachment. The token is 128 random bits.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="security">Security</h2>
+      <ul>
+        <li>There is <strong>no authentication</strong>. Every per-session window is a live instance of your application on the host. Bind to <code>localhost</code>, or put the bridge behind an authenticating reverse proxy.</li>
+        <li>In shared mode every viewer sees, and can change, the same app, including password fields.</li>
+        <li>There is no session limit. Idle sessions close after <code>sessionTtlMs</code>.</li>
+        <li>The browser never receives code. Uploads only reach file choosers, and downloads only serve files saved through a save dialog.</li>
+      </ul>
+
+      <h2 id="limitations">Limitations</h2>
+      <ul>
+        <li>Custom-painted components, images and charts don't render.</li>
+        <li>Popup menus (<code>JPopupMenu</code>), table and list selection, and cell editing aren't mapped yet.</li>
+        <li>AWT's native <code>FileDialog</code> isn't intercepted (Swing apps rarely use it).</li>
+        <li>Class loading assumes a plain jar; apps that need a custom launcher or a module path need embedding.</li>
+      </ul>
+
+      <h2 id="troubleshooting">Troubleshooting</h2>
+      <dl class="faq">
+        <dt>The Docker container starts but serves nothing, and logs nothing.</dt>
+        <dd>Run it with <code>--init</code>. As PID 1, <code>xvfb-run</code> never sees Xvfb's ready signal and waits forever.</dd>
+        <dt><code>HeadlessException</code></dt>
+        <dd>There is no display. Run under <code>xvfb-run</code>, or set <code>DISPLAY</code>.</dd>
+        <dt>“cannot trap System.exit” at startup.</dt>
+        <dd>Add <code>-Djava.security.manager=allow</code> (Java 18–23), or see <a href="#exit">System.exit</a> for JDK 24 and later.</dd>
+        <dt>The stream answers with HTTP 500 and “cannot create …”.</dt>
+        <dd>The window's constructor threw. The cause is in the bridge's log; often the app expects setup done in its <code>main()</code>, in which case use shared mode or embedding.</dd>
+      </dl>
+
+      <h2 id="development">Development</h2>
+<pre><code>src/org/xulj/bridge/Renderer.java    windows → virtual XUL-J tree (layouts, mapping, menus, dialogs)
+src/org/xulj/bridge/Reconciler.java  frame diffing → minimal ops
+src/org/xulj/bridge/Host.java        sessions, EDT tick, HTTP/SSE, intents, uploads, downloads, exit trap
+src/org/xulj/bridge/Launcher.java    command line
+src/org/xulj/bridge/Json.java        dependency-free JSON
+demo/src/legacy/InventoryFrame.java  a 2000s-style Swing demo with menus, table, timers and dialogs
+test/swing-e2e.js                    end-to-end test against a running bridge (needs ../xul-j)</code></pre>
+<pre><code>node test/swing-e2e.js http://127.0.0.1:8093</code></pre>
+      <p>Source and issues: <a href="https://github.com/xul-j/java-bridge">github.com/xul-j/java-bridge</a>. MIT licensed.</p>
+    </main>
+  </div>
+
+  <footer class="bottom">
+    <div class="wrap">
+      <span>XUL-J · MIT licensed · <a href="/">Home</a> · <a href="/net-bridge/">net-bridge</a></span>
+      <span>java-bridge docs · served from <a href="https://github.com/xul-j/java-bridge/tree/main/docs">/docs</a></span>
+    </div>
+  </footer>
+</body>
+</html>
