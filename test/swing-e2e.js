@@ -73,7 +73,7 @@ function show(c) {
 
   await step('layout managers map to boxes; ids come from the app’s field names', async () => {
     const win = a.model.ids.get('InventoryFrame');
-    assert.deepStrictEqual(win.children.map((c) => c.tag), ['menubar', 'vbox'], 'menu bar, content pane');
+    assert.deepStrictEqual(win.children.filter((c) => c.tag !== 'menupopup').map((c) => c.tag), ['menubar', 'vbox'], 'menu bar, content pane');
     const content = win.children[1].children.map((c) => c.tag);
     assert.deepStrictEqual(content, ['toolbar', 'tabbox', 'vbox'], 'BorderLayout north / center / south');
     assert.strictEqual(a.attr('nameField', 'flex'), 1, 'GridBag weightx + fill → flex');
@@ -101,6 +101,16 @@ function show(c) {
     await until(() => a.attr('compactRows', 'checked') === true && a.attr('statusLabel', 'value') === 'Compact rows', 'check item toggled');
     await a.send({ op: 'do', command: 'cmd_name' });
     await until(() => a.attr('name', 'checked') === true && a.attr('sku', 'checked') === false, 'radio item moved');
+  });
+
+  await step('theme tokens come from the look and feel; a grey label becomes a muted label', async () => {
+    assert(a.model.theme, 'theme op sent');
+    assert.deepStrictEqual(validate({ op: 'theme', tokens: a.model.theme.tokens }), []);
+    assert.match(a.model.theme.tokens.accent, /^#[0-9a-f]{6}$/);
+    const hint = [...a.model.ids.values()].find((n) => n.tag === 'label' && /^Runs against/.test(n.attrs.value || ''));
+    assert.strictEqual(hint && hint.attrs.class, 'muted', 'Color.GRAY → muted');
+    assert.strictEqual(a.attr('itemsTable', 'seltype'), 'multiple');
+    assert.strictEqual(a.model.ids.get(a.attr('itemsTable', 'contextmenu')).tag, 'menupopup');
   });
 
   await step("the app's javax.swing.Timer drives live updates", async () => {
@@ -213,11 +223,33 @@ function show(c) {
     assert.strictEqual((await request('POST', `${base}/upload?session=${session}&id=nameField`, 'x', { 'X-Filename': 'x' })).status, 404);
   });
 
+  await step('table selection both ways, double-click, and a popup menu driven by the app’s listener', async () => {
+    const popupId = a.attr('itemsTable', 'contextmenu');
+    await a.send({ op: 'select', id: 'itemsTable', rows: [0, 2] });
+    await until(() => JSON.stringify(a.attr('itemsTable', 'selection')) === '[0,2]' && a.attr('statusLabel', 'value') === '2 selected', 'selection applied');
+    await a.send({ op: 'select', id: 'itemsTable', rows: [9999] }, 400);
+    await a.send({ op: 'contextmenu', id: popupId, target: 'itemsTable' });
+    await until(() => a.attr('deleteSelected', 'label') === 'Delete 2 items…', 'popup listener ran');
+    assert.strictEqual(a.model.commands.get('cmd_duplicateItem').disabled, true);
+    await a.send({ op: 'contextmenu', id: popupId, target: 'nameField' }, 404);
+    await a.send({ op: 'select', id: 'itemsTable', rows: [1] });
+    await until(() => JSON.stringify(a.attr('itemsTable', 'selection')) === '[1]', 'single');
+    await a.send({ op: 'contextmenu', id: popupId, target: 'itemsTable' });
+    await until(() => a.model.commands.get('cmd_duplicateItem').disabled === false, 'enabled');
+    const before = a.rows('itemsTable').length, name = a.rows('itemsTable')[1].c1;
+    await a.send({ op: 'do', command: 'cmd_duplicateItem' });
+    await until(() => a.rows('itemsTable').length === before + 1 && a.rows('itemsTable')[before].c1 === name, 'duplicated');
+    await a.send({ op: 'activate', id: 'itemsTable', row: 0 });
+    await until(() => a.dialog() && a.dialog().attrs.label === 'Item details' && a.dialogButton('OK'), 'double-click → details');
+    await a.send({ op: 'do', command: a.dialogButton('OK').attrs.command });
+    await until(() => !a.dialog(), 'closed');
+  });
+
   await step('a second browser session gets its own frame instance', async () => {
     const b = client(`${session}b`);
     await until(() => b.model.ids.has('itemsTable') && b.attr('clockLabel', 'value'), 'second frame');
     assert.strictEqual(b.rows('itemsTable').length, 0);
-    assert.strictEqual(a.rows('itemsTable').length, 22);
+    assert(a.rows('itemsTable').length > 20, 'the first session keeps its items');
     b.conn.close();
   });
 

@@ -79,6 +79,7 @@ public final class Host {
         int seq;
         long lastSeen = System.currentTimeMillis();
         boolean ended, hadWindow;
+        String themeJson;
 
         Session(String id) { this.id = id; }
 
@@ -213,11 +214,69 @@ public final class Host {
             checkDownloads(s);
             try {
                 s.renderer.render(s.windows);
+                Map<String, Object> theme = s.renderer.theme();
+                String themeJson = theme == null ? null : Json.write(theme);
+                if (themeJson != null && !themeJson.equals(s.themeJson)) {
+                    s.themeJson = themeJson;
+                    Map<String, Object> o = op("theme");
+                    o.put("tokens", theme);
+                    if (isDark(String.valueOf(theme.get("background")))) o.put("dark", theme); // a dark app stays dark
+                    s.emit(o);
+                }
                 for (Map<String, Object> o : s.reconciler.diff(s.renderer.nodes(), s.renderer.commands())) s.emit(o);
             } catch (RuntimeException e) {
                 e.printStackTrace(opt.log);
             }
         }
+    }
+
+    private static boolean isDark(String hex) {
+        if (hex == null || !hex.matches("^#[0-9a-f]{6}$")) return false;
+        int r = Integer.parseInt(hex.substring(1, 3), 16), g = Integer.parseInt(hex.substring(3, 5), 16), b = Integer.parseInt(hex.substring(5, 7), 16);
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.35;
+    }
+
+    private static int rowCount(Object c) {
+        if (c instanceof javax.swing.JTable) return ((javax.swing.JTable) c).getRowCount();
+        if (c instanceof javax.swing.JList) return ((javax.swing.JList<?>) c).getModel().getSize();
+        if (c instanceof javax.swing.JTree) return ((javax.swing.JTree) c).getRowCount();
+        return 0;
+    }
+
+    /** Selecting rows the way a user would, so selection listeners fire. */
+    private static void selectRows(Object c, int[] rows) {
+        if (c instanceof javax.swing.JTable) {
+            javax.swing.JTable t = (javax.swing.JTable) c;
+            t.clearSelection();
+            for (int r : rows) t.addRowSelectionInterval(r, r);
+        } else if (c instanceof javax.swing.JList) {
+            ((javax.swing.JList<?>) c).setSelectedIndices(rows);
+        } else if (c instanceof javax.swing.JTree) {
+            ((javax.swing.JTree) c).setSelectionRows(rows);
+        }
+    }
+
+    /** Double-click: Swing apps listen for a MouseEvent with clickCount 2, so that is what they get. */
+    private static void activate(Object c, int row) {
+        selectRows(c, new int[] {row});
+        java.awt.Rectangle r = null;
+        if (c instanceof javax.swing.JTable) r = ((javax.swing.JTable) c).getCellRect(row, 0, true);
+        else if (c instanceof javax.swing.JList) r = ((javax.swing.JList<?>) c).getCellBounds(row, row);
+        else if (c instanceof javax.swing.JTree) r = ((javax.swing.JTree) c).getRowBounds(row);
+        if (r == null) return;
+        java.awt.Component comp = (java.awt.Component) c;
+        int x = r.x + Math.min(8, Math.max(1, r.width / 2)), y = r.y + r.height / 2;
+        long when = System.currentTimeMillis();
+        for (int id : new int[] {java.awt.event.MouseEvent.MOUSE_PRESSED, java.awt.event.MouseEvent.MOUSE_RELEASED, java.awt.event.MouseEvent.MOUSE_CLICKED}) {
+            comp.dispatchEvent(new java.awt.event.MouseEvent(comp, id, when, java.awt.event.InputEvent.BUTTON1_DOWN_MASK, x, y, 2, false, java.awt.event.MouseEvent.BUTTON1));
+        }
+    }
+
+    /** Runs the app's popup listeners as if the menu were opening over `source`. */
+    private static void openContextMenu(javax.swing.JPopupMenu pm, javax.swing.JComponent source) {
+        pm.setInvoker(source);
+        javax.swing.event.PopupMenuEvent ev = new javax.swing.event.PopupMenuEvent(pm);
+        for (javax.swing.event.PopupMenuListener l : pm.getPopupMenuListeners()) l.popupMenuWillBecomeVisible(ev);
     }
 
     private static void neverExit(Window w) {
@@ -320,6 +379,40 @@ public final class Host {
             Object target = s.renderer.lookup(((String) cmd).substring(4));
             if (!(target instanceof AbstractButton)) return 404;
             action.set(() -> ((AbstractButton) target).doClick(0));
+            return 202;
+        }
+        if ("select".equals(op) || "activate".equals(op)) {
+            Object id = msg.get("id");
+            Object target = id instanceof String ? s.renderer.lookup((String) id) : null;
+            if (!(target instanceof javax.swing.JTable || target instanceof javax.swing.JList || target instanceof javax.swing.JTree)) return 404;
+            if (!((java.awt.Component) target).isEnabled()) return 409;
+            int count = rowCount(target);
+            if ("activate".equals(op)) {
+                Object rv = msg.get("row");
+                if (!(rv instanceof Double) || (Double) rv < 0 || (Double) rv >= count || (Double) rv % 1 != 0) return 400;
+                int row = ((Double) rv).intValue();
+                action.set(() -> activate(target, row));
+                return 202;
+            }
+            Object rl = msg.get("rows");
+            if (!(rl instanceof List)) return 400;
+            List<?> list = (List<?>) rl;
+            int[] rows = new int[list.size()];
+            for (int i = 0; i < rows.length; i++) {
+                Object x = list.get(i);
+                if (!(x instanceof Double) || (Double) x < 0 || (Double) x >= count || (Double) x % 1 != 0) return 400;
+                rows[i] = ((Double) x).intValue();
+            }
+            action.set(() -> selectRows(target, rows));
+            return 202;
+        }
+        if ("contextmenu".equals(op)) {
+            Object pid = msg.get("id"), tid = msg.get("target");
+            Object pm = pid instanceof String ? s.renderer.lookup((String) pid) : null;
+            Object src = tid instanceof String ? s.renderer.lookup((String) tid) : null;
+            if (!(pm instanceof javax.swing.JPopupMenu) || !(src instanceof javax.swing.JComponent)
+                || ((javax.swing.JComponent) src).getComponentPopupMenu() != pm) return 404;
+            action.set(() -> openContextMenu((javax.swing.JPopupMenu) pm, (javax.swing.JComponent) src));
             return 202;
         }
         if ("input".equals(op)) {

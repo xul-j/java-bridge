@@ -176,6 +176,49 @@ public class InventoryFrame extends JFrame {
         addButton.setMnemonic(KeyEvent.VK_A);
         addButton.addActionListener(this::addItem);
 
+        // Context menu: enabled per selection by its listener, as many apps do.
+        javax.swing.JPopupMenu itemMenu = new javax.swing.JPopupMenu();
+        JMenuItem duplicate = new JMenuItem("Duplicate item");
+        JMenuItem deleteRows = new JMenuItem("Delete selected…");
+        itemMenu.add(duplicate);
+        itemMenu.addSeparator();
+        itemMenu.add(deleteRows);
+        itemMenu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                int n = itemsTable.getSelectedRowCount();
+                duplicate.setEnabled(n == 1);
+                deleteRows.setEnabled(n > 0);
+                deleteRows.setText(n == 1 ? "Delete item…" : "Delete " + n + " items…");
+            }
+            @Override public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) { }
+            @Override public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { }
+        });
+        duplicate.addActionListener(e -> {
+            int r = itemsTable.getSelectedRow();
+            itemsModel.addRow(new Object[] {nextSku++, itemsModel.getValueAt(r, 1), itemsModel.getValueAt(r, 2), itemsModel.getValueAt(r, 3), itemsModel.getValueAt(r, 4)});
+            status("Duplicated " + itemsModel.getValueAt(r, 1));
+        });
+        deleteRows.addActionListener(e -> {
+            int[] rows = itemsTable.getSelectedRows();
+            if (JOptionPane.showConfirmDialog(this, "Delete " + rows.length + " item(s)?", "Confirm delete",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) return;
+            for (int i = rows.length - 1; i >= 0; i--) itemsModel.removeRow(rows[i]);
+            status("Deleted " + rows.length + " item(s)");
+        });
+        itemsTable.setComponentPopupMenu(itemMenu);
+        itemsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) status(itemsTable.getSelectedRowCount() + " selected");
+        });
+        itemsTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() != 2) return;
+                int r = itemsTable.rowAtPoint(e.getPoint());
+                if (r < 0) return;
+                JOptionPane.showMessageDialog(InventoryFrame.this, "SKU " + itemsModel.getValueAt(r, 0) + ": " + itemsModel.getValueAt(r, 1)
+                    + "\n" + itemsModel.getValueAt(r, 3) + " in stock at " + itemsModel.getValueAt(r, 4), "Item details", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(form, BorderLayout.NORTH);
         panel.add(new JScrollPane(itemsTable), BorderLayout.CENTER);
@@ -186,6 +229,9 @@ public class InventoryFrame extends JFrame {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.add(new JLabel("Simulates a slow restock from the warehouse system."));
+        JLabel hint = new JLabel("Runs against the test warehouse; nothing is ordered.");
+        hint.setForeground(java.awt.Color.GRAY);
+        panel.add(hint);
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT));
         row.add(restockButton);
         row.add(restockProgress);

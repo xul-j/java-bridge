@@ -97,6 +97,8 @@ public final class Renderer {
     private Map<String, JFileChooser> pickers;     // filepicker id → chooser
     private Set<Object> live;
     private VNode window;                          // window being rendered
+    private List<javax.swing.JPopupMenu> popups;   // context menus used in the window being rendered
+    private Map<String, Object> theme;
 
     public Renderer(Host host) { this.host = host; }
 
@@ -106,6 +108,8 @@ public final class Renderer {
     public Runnable click(String commandId) { return clicks.get(commandId); }
     public Consumer<Object> input(String id) { return inputs.get(id); }
     public JFileChooser picker(String id) { return pickers.get(id); }
+    /** Theme tokens taken from the look and feel and the main window. */
+    public Map<String, Object> theme() { return theme; }
 
     public void addUpload(JFileChooser fc, File f) {
         List<File> list = uploads.computeIfAbsent(fc, k -> new ArrayList<>());
@@ -121,9 +125,11 @@ public final class Renderer {
         pickers = new HashMap<>();
         live = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         nameHints.clear();
+        theme = windows.isEmpty() ? null : themeOf(windows.get(0));
         int order = 0;
         for (Window w : windows) {
             if (!w.isDisplayable()) continue;
+            popups = new ArrayList<>();
             collectNames(w);
             window = add(w, "window", "root", order++);
             window.attrs.put("label", w instanceof Frame ? nz(((Frame) w).getTitle()) : w instanceof Dialog ? nz(((Dialog) w).getTitle()) : "");
@@ -142,6 +148,12 @@ public final class Renderer {
                 element(rp.getContentPane(), window.id, i, flex(1));
             } else {
                 layoutChildren(w, window.id, false);
+            }
+            // Context menus used in this window, rendered once each as menupopups.
+            int k = 0;
+            for (javax.swing.JPopupMenu pm : new java.util.LinkedHashSet<>(popups)) {
+                VNode pop = add(pm, "menupopup", window.id, 10000 + k++);
+                menuEntries(pm.getComponents(), pop.id);
             }
         }
         // Forget components that are gone so their ids can be reused.
@@ -263,6 +275,61 @@ public final class Renderer {
         if (extra != null) for (Map.Entry<String, Object> e : extra.entrySet()) n.attrs.putIfAbsent(e.getKey(), e.getValue());
         if (!c.isVisible()) n.attrs.put("hidden", true);
         if (!c.isEnabled() && !n.attrs.containsKey("command")) n.attrs.put("disabled", true);
+        // A scroll pane renders as its view, so the view's popup menu is the one that counts.
+        Component src = c instanceof JScrollPane && ((JScrollPane) c).getViewport().getView() != null ? ((JScrollPane) c).getViewport().getView() : c;
+        javax.swing.JPopupMenu pm = src instanceof JComponent ? ((JComponent) src).getComponentPopupMenu() : null;
+        if (pm != null && popups != null) {
+            popups.add(pm);
+            n.attrs.put("contextmenu", idOf(pm));
+        }
+    }
+
+    // ---- theme and semantic colours ----------------------------------------------------------
+
+    private static String hex(java.awt.Color c) { return c == null ? null : String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue()); }
+
+    private static java.awt.Color ui(String... keys) {
+        for (String k : keys) {
+            java.awt.Color c = javax.swing.UIManager.getColor(k);
+            if (c != null) return c;
+        }
+        return null;
+    }
+
+    private static Map<String, Object> themeOf(Window w) {
+        Map<String, Object> t = new LinkedHashMap<>();
+        java.awt.Color bg = w instanceof RootPaneContainer ? ((RootPaneContainer) w).getContentPane().getBackground() : w.getBackground();
+        putColor(t, "background", bg != null ? bg : ui("Panel.background"));
+        putColor(t, "chrome", ui("MenuBar.background", "Panel.background"));
+        putColor(t, "surface", ui("Table.background", "TextField.background", "List.background"));
+        putColor(t, "text", ui("Label.foreground", "textText"));
+        putColor(t, "muted", ui("Label.disabledForeground", "textInactiveText"));
+        putColor(t, "border", ui("Separator.foreground", "controlShadow"));
+        putColor(t, "accent", ui("Table.selectionBackground", "List.selectionBackground", "textHighlight"));
+        putColor(t, "accentText", ui("Table.selectionForeground", "List.selectionForeground", "textHighlightText"));
+        String laf = javax.swing.UIManager.getLookAndFeel().getName().toLowerCase();
+        t.put("radius", laf.contains("nimbus") || laf.contains("flat") ? 6 : 2);
+        java.awt.Font f = javax.swing.UIManager.getFont("Label.font");
+        if (f != null) {
+            String family = f.getFamily().toLowerCase();
+            t.put("density", f.getSize() <= 11 ? "compact" : f.getSize() >= 14 ? "comfortable" : "normal");
+            t.put("font", family.contains("mono") ? "mono" : family.equals("serif") || family.contains("times") ? "serif" : "system");
+        }
+        return t;
+    }
+
+    private static void putColor(Map<String, Object> t, String k, java.awt.Color c) { if (c != null) t.put(k, hex(c)); }
+
+    /** A label painted in a colour of its own gets a role, so it still reads in dark mode. */
+    private static String roleOf(java.awt.Color fore, java.awt.Color parentFore) {
+        if (fore == null || fore.equals(parentFore) || fore.equals(javax.swing.UIManager.getColor("Label.foreground"))) return null;
+        float[] hsb = java.awt.Color.RGBtoHSB(fore.getRed(), fore.getGreen(), fore.getBlue(), null);
+        float hue = hsb[0] * 360, sat = hsb[1], bright = hsb[2];
+        if (sat < 0.15f) return bright > 0.3f && bright < 0.8f ? "muted" : null;
+        if (hue < 18 || hue >= 340) return "danger";
+        if (hue < 65) return "warning";
+        if (hue < 170) return "success";
+        return null;
     }
 
     private VNode widget(Component c, String parent, int order) {
@@ -324,6 +391,8 @@ public final class Renderer {
             n.rows = new ArrayList<>();
             ListModel<?> m = list.getModel();
             for (int i = 0; i < m.getSize(); i++) n.rows.add(row("c0", String.valueOf(m.getElementAt(i))));
+            n.attrs.put("seltype", list.getSelectionMode() == javax.swing.ListSelectionModel.SINGLE_SELECTION ? "single" : "multiple");
+            n.attrs.put("selection", ints(list.getSelectedIndices()));
             return n;
         }
         if (c instanceof JTree) {
@@ -338,6 +407,9 @@ public final class Renderer {
                 for (int d = 0; d < depth; d++) indent.append("   ");
                 n.rows.add(row("c0", indent + String.valueOf(p.getLastPathComponent())));
             }
+            n.attrs.put("seltype", tree.getSelectionModel().getSelectionMode() == javax.swing.tree.TreeSelectionModel.SINGLE_TREE_SELECTION ? "single" : "multiple");
+            int[] sel = tree.getSelectionRows();
+            n.attrs.put("selection", ints(sel == null ? new int[0] : sel));
             return n;
         }
         if (c instanceof JTextArea || c instanceof JEditorPane) {
@@ -385,6 +457,8 @@ public final class Renderer {
         if (c instanceof JLabel) {
             n = add(c, "label", parent, order);
             n.attrs.put("value", text(((JLabel) c).getText()));
+            String role = roleOf(c.getForeground(), c.getParent() != null ? c.getParent().getForeground() : null);
+            if (role != null) n.attrs.put("class", role);
             return n;
         }
         if (c instanceof JProgressBar) {
@@ -501,20 +575,24 @@ public final class Renderer {
             n.attrs.put("accesskey", "alt+" + Character.toLowerCase((char) menu.getMnemonic()));
         if (!menu.isEnabled()) n.attrs.put("disabled", true);
         if (!menu.isVisible()) n.attrs.put("hidden", true);
+        menuEntries(menu.getMenuComponents(), n.id);
+        return n;
+    }
+
+    private void menuEntries(Component[] items, String parent) {
         int i = 0;
-        for (Component k : menu.getMenuComponents()) {
+        for (Component k : items) {
             VNode child;
-            if (k instanceof JMenu) child = menu((JMenu) k, n.id, i, false);
+            if (k instanceof JMenu) child = menu((JMenu) k, parent, i, false);
             else if (k instanceof JMenuItem) {
-                child = button((JMenuItem) k, n.id, i, "menuitem", "");
+                child = button((JMenuItem) k, parent, i, "menuitem", "");
                 if (k instanceof javax.swing.JCheckBoxMenuItem || k instanceof javax.swing.JRadioButtonMenuItem)
                     child.attrs.put("checked", ((JMenuItem) k).isSelected());
-            } else if (k instanceof JSeparator) child = add(k, "menuseparator", n.id, i);
+            } else if (k instanceof JSeparator) child = add(k, "menuseparator", parent, i);
             else continue;
             if (!k.isVisible()) child.attrs.put("hidden", true);
             i++;
         }
-        return n;
     }
 
     // ---- data widgets --------------------------------------------------------------------
@@ -539,7 +617,16 @@ public final class Renderer {
             }
             n.rows.add(row);
         }
+        n.attrs.put("seltype", t.getSelectionModel().getSelectionMode() == javax.swing.ListSelectionModel.SINGLE_SELECTION ? "single" : "multiple");
+        n.attrs.put("selection", ints(t.getSelectedRows()));
         return n;
+    }
+
+    private static List<Integer> ints(int[] a) {
+        List<Integer> out = new ArrayList<>();
+        for (int i : a) out.add(i);
+        java.util.Collections.sort(out);
+        return out;
     }
 
     private static Map<String, Object> col(String id, String label, Integer width) {
