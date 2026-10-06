@@ -68,6 +68,29 @@ bridge drives them through their public APIs.
 
 An exception thrown by an app listener becomes an error notification. Uploads are limited to 100 MB.
 
+## Theme, selection and context menus
+
+- **Theme:** the look and feel's colours and font (`UIManager`) and the main window's background
+  become XUL-J theme tokens, so a Metal, Nimbus or FlatLaf app keeps its look; dark apps stay dark.
+  Labels painted in a colour of their own get a role (`danger`, `warning`, `success`, `muted`).
+- **Selection:** `JTable`, `JList` and `JTree` selection works both ways (selection listeners fire);
+  double-click or Enter dispatches a real two-click `MouseEvent`, which is how Swing apps listen.
+- **Context menus:** a component's `setComponentPopupMenu` becomes a `menupopup` (found through
+  scroll panes). Right-click selects the row and opens it; the bridge sets the invoker and runs the
+  app's `PopupMenuListener`s, so items enable and relabel as on the desktop. Menus shown by hand
+  from a `MouseListener` (`popup.show(...)`) are not detected yet.
+
+## AI agents (MCP)
+
+The [XUL-J MCP server](https://github.com/xul-j/xul-j#mcp-let-ai-agents-operate-any-xul-j-interface)
+turns a bridged app into tools an agent can use: read the screen as labelled elements, fill
+fields, run commands, select rows, open context menus and answer `JOptionPane`s, upload and
+download files. No screenshots: the agent works with the same semantic tree the browser renders.
+
+    claude mcp add inventory -- node ../xul-j/mcp/server.js --url http://127.0.0.1:8093
+
+`node test/mcp-e2e.js` shows it end to end.
+
 ## Mapping
 
 | Swing | XUL-J |
@@ -92,7 +115,7 @@ An exception thrown by an app listener becomes an error notification. Uploads ar
 ## Limitations
 
 - AWT `FileDialog` is native and not intercepted (Swing apps rarely use it).
-- Custom-painted components, images and charts do not render. Popup menus (`JPopupMenu`),
-  table and list selection, and cell editing are not mapped yet.
+- Custom-painted components, images and charts do not render. Cell editing is not mapped yet,
+  and popup menus shown by hand (`popup.show`) are not detected.
 - In shared mode every viewer sees, and can change, the same app, including password fields.
 - Every per-session window is a live instance on the host, with no authentication and no session limit.

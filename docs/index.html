@@ -34,6 +34,9 @@
       <a href="#mapping">Component mapping</a>
       <a href="#menus">Menus</a>
       <a href="#dialogs">Dialogs</a>
+      <a href="#theme">Theme</a>
+      <a href="#selection">Selection &amp; context menus</a>
+      <a href="#agents">AI agents (MCP)</a>
       <a href="#exit">System.exit</a>
       <a href="#http">HTTP endpoints</a>
       <a href="#security">Security</a>
@@ -187,13 +190,37 @@ public static void main(String[] args) throws Exception {
         stop the bridge. For such apps, run the bridge on JDK 8–23.
       </div>
 
+      <h2 id="theme">Theme</h2>
+      <p>The look and feel's colours and font (from <code>UIManager</code>) and the main window's background become XUL-J theme tokens, so a Metal, Nimbus or FlatLaf app keeps its character; a dark app stays dark in dark mode. Labels with a colour of their own get a role: red <code>danger</code>, orange <code>warning</code>, green <code>success</code>, grey <code>muted</code>.</p>
+      <p>The browser applies these as design tokens, never as CSS, and the viewer stays in charge: in high-contrast mode producer colours are ignored, in dark mode only a dark palette is used, and colour pairs that would fall below WCAG contrast are dropped.</p>
+
+      <h2 id="selection">Selection &amp; context menus</h2>
+      <p><code>JTable</code>, <code>JList</code> and <code>JTree</code> report their selection, and browser selections go through the selection model, so listeners fire. Double-click or Enter dispatches a real two-click <code>MouseEvent</code>, which is how Swing apps detect it.</p>
+      <p>A component's <code>setComponentPopupMenu</code> becomes a context menu (also when the component sits in a scroll pane). Right-click selects the row and opens it; the bridge sets the invoker and runs the app's <code>PopupMenuListener</code>s, so items enable and relabel as on the desktop. Menus an app shows by hand from a <code>MouseListener</code> are not detected yet.</p>
+
+      <h2 id="agents">AI agents (MCP)</h2>
+      <p>The <a href="https://github.com/xul-j/xul-j#mcp-let-ai-agents-operate-any-xul-j-interface">XUL-J MCP server</a> lets an AI agent operate the app through the same semantic tree the browser renders: labelled elements, explicit commands, enabled state, tables and dialogs. No screenshots, no pixel guessing. Each agent connection is its own session, with its own instance of the app.</p>
+<pre><code>claude mcp add inventory -- node ../xul-j/mcp/server.js --url http://127.0.0.1:8093</code></pre>
+      <table class="map">
+        <thead><tr><th>Tool</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td><code>get_ui</code>, <code>list_commands</code></td><td>Read the screen as an outline with ids, values, commands, tables and dialogs</td></tr>
+          <tr><td><code>set_value</code>, <code>do_command</code></td><td>Fill fields, then press buttons or choose menu items</td></tr>
+          <tr><td><code>read_table</code>, <code>select_rows</code>, <code>activate_row</code></td><td>Work with grids and lists</td></tr>
+          <tr><td><code>open_context_menu</code></td><td>Open a right-click menu; the app enables its items</td></tr>
+          <tr><td><code>upload_file</code>, <code>download_file</code></td><td>Answer open and save dialogs</td></tr>
+          <tr><td><code>wait_for</code></td><td>Wait for something slow to finish</td></tr>
+        </tbody>
+      </table>
+      <p>Every action answers with what changed, so the agent rarely needs to re-read the screen. <code>test/mcp-e2e.js</code> has an agent answer an error dialog, add an item, duplicate it from the right-click menu and change a setting through an input dialog.</p>
+
       <h2 id="http">HTTP endpoints</h2>
       <table class="map">
         <thead><tr><th>Request</th><th>Purpose</th></tr></thead>
         <tbody>
           <tr><td><code>GET /</code></td><td>The browser client (embedded in the jar)</td></tr>
           <tr><td><code>GET /stream?session=&lt;id&gt;</code></td><td>Server-sent events. Creates the session on first use (per-session mode), and resumes from <code>Last-Event-ID</code> or <code>?from=</code>.</td></tr>
-          <tr><td><code>POST /intent?session=&lt;id&gt;</code></td><td><code>{"op":"do","command":…}</code> or <code>{"op":"input","id":…,"value":…}</code>. Returns 202, or 400, 404 or 409.</td></tr>
+          <tr><td><code>POST /intent?session=&lt;id&gt;</code></td><td><code>{"op":"do","command":…}</code>, <code>{"op":"input","id":…,"value":…}</code>, <code>{"op":"select","id":…,"rows":[…]}</code>, <code>{"op":"activate","id":…,"row":…}</code> or <code>{"op":"contextmenu","id":…,"target":…}</code>. Returns 202, or 400, 404 or 409.</td></tr>
           <tr><td><code>POST /upload?session=&lt;id&gt;&amp;id=&lt;picker&gt;</code></td><td>A file for an open dialog, with the name in <code>X-Filename</code>. Returns 202, 404 or 413 (over 100 MB).</td></tr>
           <tr><td><code>GET /download/&lt;token&gt;</code></td><td>A file the app saved, sent as an attachment. The token is 128 random bits.</td></tr>
         </tbody>
@@ -210,7 +237,7 @@ public static void main(String[] args) throws Exception {
       <h2 id="limitations">Limitations</h2>
       <ul>
         <li>Custom-painted components, images and charts don't render.</li>
-        <li>Popup menus (<code>JPopupMenu</code>), table and list selection, and cell editing aren't mapped yet.</li>
+        <li>Cell editing isn't mapped yet, and popup menus shown by hand (<code>popup.show</code>) aren't detected.</li>
         <li>AWT's native <code>FileDialog</code> isn't intercepted (Swing apps rarely use it).</li>
         <li>Class loading assumes a plain jar; apps that need a custom launcher or a module path need embedding.</li>
       </ul>
